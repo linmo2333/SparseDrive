@@ -9,7 +9,7 @@ dist_params = dict(backend="nccl")
 log_level = "INFO"
 work_dir = None
 
-total_batch_size = 48
+total_batch_size = 16
 num_gpus = 8
 batch_size = total_batch_size // num_gpus
 num_iters_per_epoch = int(length[version] // (num_gpus * batch_size))
@@ -78,6 +78,7 @@ decouple_attn = True
 decouple_attn_map = False
 decouple_attn_motion = True
 with_quality_estimation = True
+para_fusion = True
 
 task_config = dict(
     with_det=True,
@@ -398,6 +399,7 @@ model = dict(
         ),
         motion_plan_head=dict(
             type='MotionPlanningHead',
+            para_fusion=para_fusion,
             fut_ts=fut_ts,
             fut_mode=fut_mode,
             ego_fut_ts=ego_fut_ts,
@@ -451,7 +453,7 @@ model = dict(
             norm_layer=dict(type="LN", normalized_shape=embed_dims),
             ffn=dict(
                 type="AsymmetricFFN",
-                in_channels=embed_dims,
+                in_channels=embed_dims*2 if para_fusion else embed_dims,
                 pre_norm=dict(type="LN"),
                 embed_dims=embed_dims,
                 feedforward_channels=embed_dims * 2,

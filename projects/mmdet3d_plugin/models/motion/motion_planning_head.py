@@ -61,12 +61,14 @@ class MotionPlanningHead(BaseModule):
         planning_decoder=None,
         num_det=50,
         num_map=10,
+        para_fusion=False,
     ):
         super(MotionPlanningHead, self).__init__()
         self.fut_ts = fut_ts
         self.fut_mode = fut_mode
         self.ego_fut_ts = ego_fut_ts
         self.ego_fut_mode = ego_fut_mode
+        self.para_fusion = para_fusion
 
         self.decouple_attn = decouple_attn
         self.operation_order = operation_order
@@ -294,7 +296,7 @@ class MotionPlanningHead(BaseModule):
                 )
                 instance_feature = instance_feature.reshape(bs, num_anchor + 1, dim)
             elif op == "gnn":
-                instance_feature = self.graph_model(
+                instance_feature_dynamic = self.graph_model(
                     i,
                     instance_feature,
                     instance_feature_selected,
@@ -302,15 +304,32 @@ class MotionPlanningHead(BaseModule):
                     query_pos=anchor_embed,
                     key_pos=anchor_embed_selected,
                 )
+                if not self.para_fusion:
+                    instance_feature = instance_feature_dynamic
             elif op == "norm" or op == "ffn":
-                instance_feature = self.layers[i](instance_feature)
+                if not self.para_fusion:
+                    instance_feature = self.layers[i](instance_feature)
+                else:
+                    if op == "norm":
+                        if self.operation_order[i - 1] == 'gnn':
+                            instance_feature_dynamic = self.layers[i](instance_feature_dynamic)
+                        elif self.operation_order[i - 1] == 'cross_gnn':
+                            instance_feature_static = self.layers[i](instance_feature_static)
+                        elif self.operation_order[i - 1] == 'ffn':
+                            instance_feature = self.layers[i](instance_feature)
+                        else:
+                            assert 0, "There must be some mistakes!"
+                    else:
+                        instance_feature = self.layers[i](torch.cat([instance_feature_dynamic, instance_feature_static], dim=-1))
             elif op == "cross_gnn":
-                instance_feature = self.layers[i](
+                instance_feature_static = self.layers[i](
                     instance_feature,
                     key=map_instance_feature_selected,
                     query_pos=anchor_embed,
                     key_pos=map_anchor_embed_selected,
                 )
+                if not self.para_fusion:
+                    instance_feature = instance_feature_static
             elif op == "refine":
                 motion_query = motion_mode_query + (instance_feature + anchor_embed)[:, :num_anchor].unsqueeze(2)
                 plan_query = plan_mode_query + (instance_feature + anchor_embed)[:, num_anchor:].unsqueeze(2) 
